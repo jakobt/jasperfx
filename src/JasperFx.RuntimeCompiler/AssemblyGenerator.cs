@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -28,6 +29,8 @@ namespace JasperFx.RuntimeCompiler
 	public class AssemblyGenerator : IAssemblyGenerator
 	{
 
+		private static readonly ConcurrentDictionary<(string Path, Guid Mvid), PortableExecutableReference> CachedReferences = new();
+
 		private readonly List<MetadataReference> _references = [];
 		private readonly List<Assembly> _assemblies = [];
 
@@ -40,6 +43,8 @@ namespace JasperFx.RuntimeCompiler
 		}
 
 		public string? AssemblyName { get; set; }
+
+		internal IReadOnlyList<MetadataReference> References => _references;
 
 		/// <summary>
 		/// Tells Roslyn to reference the given assembly and any of its dependencies
@@ -68,7 +73,10 @@ namespace JasperFx.RuntimeCompiler
 				if (alreadyReferenced)
 					return;
 
-				var reference = MetadataReference.CreateFromFile(referencePath);
+				var reference = string.IsNullOrEmpty(assembly.Location) || AssemblyLoadContext.GetLoadContext(assembly)?.IsCollectible == true
+					? MetadataReference.CreateFromFile(referencePath)
+					: CachedReferences.GetOrAdd((referencePath, assembly.ManifestModule.ModuleVersionId),
+						key => MetadataReference.CreateFromFile(key.Path));
 
 				_references.Add(reference);
 
